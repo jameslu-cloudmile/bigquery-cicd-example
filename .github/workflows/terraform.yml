@@ -36,7 +36,7 @@ jobs:
       uses: hashicorp/setup-terraform@v1
 
     - name: Validate GOOGLE_CREDENTIALS
-      run: echo ${{ secrets.GOOGLE_CREDENTIALS }} | jq '.'
+      run: echo ${{ secrets.GOOGLE_CREDENTIALS }}
       env:
         GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
 
