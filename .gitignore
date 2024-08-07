@@ -1,1 +1,2 @@
-credential.json
+*.json
+*tfstate
