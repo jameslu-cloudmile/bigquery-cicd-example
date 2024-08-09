@@ -1,9 +1,7 @@
 SELECT 
    variety, 
-   sepalLength, 
-   AVG(petalLength) AS avg_petal_length,
-   AVG(petalWidth) AS avg_petal_width
+   AVG(petalLength) AS avg_petal_length
 FROM 
    `tw-rd-tam-jameslu.test.iris`
 GROUP BY 
-   variety, sepalLength
+   variety
