@@ -8,6 +8,7 @@ on:
     - main
     paths:
     - 'bigquery/views/*.sql'  # 只監控 bigquery/views 目錄下的所有 .sql 檔案的變更
+    - '.github/workflows/terraform.yml'  # 監控workflow檔案自身的變更
   pull_request:
 
 jobs:
