@@ -5,10 +5,10 @@ name: 'Terraform'
 on:
   push:
     branches:
-    - main
+      - main
     paths:
-    - 'bigquery/views/*.sql'  # 只監控 bigquery/views 目錄下的所有 .sql 檔案的變更
-    - '.github/workflows/terraform.yml'  # 監控workflow檔案自身的變更
+      - 'bigquery/views/*.sql'  # 只監控 bigquery/views 目錄下的所有 .sql 檔案的變更
+      - '.github/workflows/terraform.yml'  # 監控workflow檔案自身的變更
   pull_request:
 
 jobs:
@@ -22,76 +22,75 @@ jobs:
         shell: bash  # 強制使用 Bash shell 來運行所有命令，無論運行器是什麼操作系統
 
     steps:
-    # 步驟1: 檢出程式碼
-    # 這一步將程式碼檢出到 GitHub Actions 的運行器中，以便後續步驟可以訪問程式碼
-    - name: Checkout
-      uses: actions/checkout@v2
+      # 步驟1: 檢出程式碼
+      # 這一步將程式碼檢出到 GitHub Actions 的運行器中，以便後續步驟可以訪問程式碼
+      - name: Checkout
+        uses: actions/checkout@v2
 
-    # 步驟2: 安裝最新版本的 Terraform CLI
-    # 使用 hashicorp 提供的動作來設置 Terraform 環境
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v1
+      # 步驟2: 安裝最新版本的 Terraform CLI
+      # 使用 hashicorp 提供的動作來設置 Terraform 環境
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
 
-    # 步驟3: 初始化 Terraform 工作目錄
-    # 這將創建初始檔案、加載任何遠端狀態、下載模塊等，準備 Terraform 環境
-    - name: Terraform Init
-      run: terraform init
-      env:
-        GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}  # 從 GitHub Secrets 中獲取 Google Cloud 資格憑證
+      # 步驟3: 初始化 Terraform 工作目錄
+      # 這將創建初始檔案、加載任何遠端狀態、下載模塊等，準備 Terraform 環境
+      - name: Terraform Init
+        run: terraform init
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}  # 從 GitHub Secrets 中獲取 Google Cloud 資格憑證
 
-    # 步驟4: 格式化檢查
-    # 確保所有 Terraform 配置檔符合規範格式
-    - name: Terraform Format
-      run: terraform fmt -check
+      # 步驟4: 格式化檢查
+      # 確保所有 Terraform 配置檔符合規範格式
+      - name: Terraform Format
+        run: terraform fmt -check
 
-    # 步驟5: 檢測變更的 SQL 檔案
-    # 使用 git diff 檢測自上次提交以來哪些 .sql 檔案發生了變更，並將它們儲存到環境變數 CHANGED_FILES 中
-    - name: Determine Changed SQL Files
-    id: changed-files
-    run: |
-      # 獲取前一個提交，如果前一個提交無效，則回退到默認分支的最新提交
-      PREV_SHA=$(git log --format="%H" -n 2 | tail -n 1)
-      echo "Using previous commit SHA: $PREV_SHA"
-  
-      # 檢查變更的 SQL 文件
-      CHANGED_FILES=$(git diff --name-only $PREV_SHA ${{ github.sha }} | grep '\.sql$')
+      # 步驟5: 檢測變更的 SQL 檔案
+      # 使用 git diff 檢測自上次提交以來哪些 .sql 檔案發生了變更，並將它們儲存到環境變數 CHANGED_FILES 中
+      - name: Determine Changed SQL Files
+        id: changed-files
+        run: |
+          # 獲取前一個提交，如果前一個提交無效，則回退到默認分支的最新提交
+          PREV_SHA=$(git log --format="%H" -n 2 | tail -n 1)
+          echo "Using previous commit SHA: $PREV_SHA"
       
-      if [ -z "$CHANGED_FILES" ]; then
-        echo "No SQL files changed."
-      else
-        echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
-        echo "Changed SQL files: $CHANGED_FILES"
-      fi
-    env:
-      GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-  
+          # 檢查變更的 SQL 文件
+          CHANGED_FILES=$(git diff --name-only $PREV_SHA ${{ github.sha }} | grep '\.sql$')
+          
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "No SQL files changed."
+          else
+            echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
+            echo "Changed SQL files: $CHANGED_FILES"
+          fi
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        
+      # 步驟6: 生成執行計畫 (Terraform Plan) - 針對 iris.sql
+      # 如果檢測到 iris.sql 檔案發生了變更，則只針對 iris 表進行計劃
+      - name: Terraform Plan for iris.sql
+        if: contains(env.CHANGED_FILES, 'bigquery/views/iris.sql')
+        run: terraform plan -target=google_bigquery_table.iris
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
 
-    # 步驟6: 生成執行計畫 (Terraform Plan) - 針對 iris.sql
-    # 如果檢測到 iris.sql 檔案發生了變更，則只針對 iris 表進行計劃
-    - name: Terraform Plan for iris.sql
-      if: contains(env.CHANGED_FILES, 'bigquery/views/iris.sql')
-      run: terraform plan -target=google_bigquery_table.iris
-      env:
-        GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+      # 步驟7: 應用變更 (Terraform Apply) - 針對 iris.sql
+      # 如果檢測到 iris.sql 檔案發生變更，且當前為 main 分支，則將變更應用到實際環境
+      - name: Terraform Apply for iris.sql
+        if: contains(env.CHANGED_FILES, 'bigquery/views/iris.sql') && github.ref == 'refs/heads/main'
+        run: terraform apply -auto-approve -target=google_bigquery_table.iris
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
 
-    # 步驟7: 應用變更 (Terraform Apply) - 針對 iris.sql
-    # 如果檢測到 iris.sql 檔案發生變更，且當前為 main 分支，則將變更應用到實際環境
-    - name: Terraform Apply for iris.sql
-      if: contains(env.CHANGED_FILES, 'bigquery/views/iris.sql') && github.ref == 'refs/heads/main'
-      run: terraform apply -auto-approve -target=google_bigquery_table.iris
-      env:
-        GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+      # 以下可以複製上述步驟，為其他 .sql 檔案設置條件
+      # 範例: 如果 another.sql 發生變更
+      # - name: Terraform Plan for another.sql
+      #   if: contains(env.CHANGED_FILES, 'bigquery/views/another.sql')
+      #   run: terraform plan -target=google_bigquery_table.another_table
+      #   env:
+      #     GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
 
-    # 以下可以複製上述步驟，為其他 .sql 檔案設置條件
-    # 範例: 如果 another.sql 發生變更
-    # - name: Terraform Plan for another.sql
-    #   if: contains(env.CHANGED_FILES, 'bigquery/views/another.sql')
-    #   run: terraform plan -target=google_bigquery_table.another_table
-    #   env:
-    #     GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-
-    # - name: Terraform Apply for another.sql
-    #   if: contains(env.CHANGED_FILES, 'bigquery/views/another.sql') && github.ref == 'refs/heads/main'
-    #   run: terraform apply -auto-approve -target=google_bigquery_table.another_table
-    #   env:
-    #     GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+      # - name: Terraform Apply for another.sql
+      #   if: contains(env.CHANGED_FILES, 'bigquery/views/another.sql') && github.ref == 'refs/heads/main'
+      #   run: terraform apply -auto-approve -target=google_bigquery_table.another_table
+      #   env:
+      #     GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
