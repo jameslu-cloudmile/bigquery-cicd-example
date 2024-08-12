@@ -54,17 +54,18 @@ jobs:
           echo "Using previous commit SHA: $PREV_SHA"
       
           # 檢查變更的 SQL 文件
-          CHANGED_FILES=$(git diff --name-only $PREV_SHA ${{ github.sha }} | grep '\.sql$')
+          CHANGED_FILES=$(git diff --name-only $PREV_SHA ${{ github.sha }} | grep '\.sql$' || true)
           
           if [ -z "$CHANGED_FILES" ]; then
             echo "No SQL files changed."
+            CHANGED_FILES=""
           else
             echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
             echo "Changed SQL files: $CHANGED_FILES"
           fi
         env:
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-        
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}    
+          
       # 步驟6: 生成執行計畫 (Terraform Plan) - 針對 iris.sql
       # 如果檢測到 iris.sql 檔案發生了變更，則只針對 iris 表進行計劃
       - name: Terraform Plan for iris.sql
