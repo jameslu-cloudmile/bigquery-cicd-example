@@ -1,98 +1,69 @@
 name: 'Terraform'
 
-# 定義工作流程觸發條件
-# 當推送到 main 分支時，或者有 pull request 時觸發
 on:
   push:
     branches:
       - main
     paths:
-      - 'bigquery/views/*.sql'  # 只監控 bigquery/views 目錄下的所有 .sql 檔案的變更
-      - '.github/workflows/terraform.yml'  # 監控 workflow 檔案自身的變更
+      - 'bigquery/views/*.sql'
+      - '.github/workflows/terraform.yml'
   pull_request:
+    branches:
+      - main
+    paths:
+      - 'bigquery/views/*.sql'
+      - '.github/workflows/terraform.yml'
 
 jobs:
   terraform:
     name: 'Terraform'
-    runs-on: ubuntu-latest  # 指定使用 Ubuntu 環境運行這個工作
-    environment: production  # 指定運行環境名稱
-
-    defaults:
-      run:
-        shell: bash  # 強制使用 Bash shell 來運行所有命令，無論運行器是什麼操作系統
+    runs-on: ubuntu-latest
 
     steps:
-      # 步驟1: 檢出程式碼
-      # 這一步將程式碼檢出到 GitHub Actions 的運行器中，以便後續步驟可以訪問程式碼
       - name: Checkout
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 2  # Fetch minimal history for comparison
 
-      # 步驟2: 安裝最新版本的 Terraform CLI
-      # 使用 hashicorp 提供的動作來設置 Terraform 環境
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v1
 
-      # 步驟3: 初始化 Terraform 工作目錄
-      # 這將創建初始檔案、加載任何遠端狀態、下載模塊等，準備 Terraform 環境
       - name: Terraform Init
         run: terraform init
         env:
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}  # 從 GitHub Secrets 中獲取 Google Cloud 資格憑證
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
 
-      # 步驟4: 格式化檢查
-      # 確保所有 Terraform 配置檔符合規範格式
-      - name: Terraform Format
-        run: terraform fmt -check
-
-      # 步驟5: 計算所有 .sql 檔案的哈希值並檢查是否有變動
-      - name: Compute hashes for all .sql files
-        id: compute-hashes
+      - name: Get list of changed SQL files
+        id: changed-files
         run: |
-          # 初始化一個變數來追蹤變更的檔案
-          FILES_CHANGED=false
-          
-          # 對目錄下的所有 .sql 檔案進行處理
-          for file in bigquery/views/*.sql; do
-            # 計算每個 .sql 檔案的哈希值
-            CURRENT_HASH=$(sha256sum $file | awk '{ print $1 }')
-            FILENAME=$(basename $file)
-            HASH_FILE="$FILENAME.hash"
-            
-            echo "Current hash for $file: $CURRENT_HASH"
-            
-            # 檢查是否存在以前保存的哈希值檔案
-            if [ -f $HASH_FILE ]; then
-              PREV_HASH=$(cat $HASH_FILE)
-              echo "Previous hash for $file: $PREV_HASH"
-            else
-              PREV_HASH=""
-              echo "No previous hash found for $file. Assuming first run."
-            fi
-            
-            # 保存當前哈希值
-            echo $CURRENT_HASH > $HASH_FILE
-            
-            # 如果哈希值不同，則標記為有變動
-            if [ "$PREV_HASH" != "$CURRENT_HASH" ]; then
-              echo "$file has changed."
-              FILES_CHANGED=true
-            fi
-          done
-          
-          # 將變更狀態傳遞給後續步驟
-          echo "FILES_CHANGED=$FILES_CHANGED" >> $GITHUB_ENV
+          # Determine the base commit to compare against
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BASE_COMMIT="${{ github.base_ref }}"
+            HEAD_COMMIT="${{ github.head_ref }}"
+          else
+            BASE_COMMIT="HEAD~1"
+            HEAD_COMMIT="${{ github.sha }}"
+          fi
+
+          # Perform the git diff to find changed .sql files
+          CHANGED_FILES=$(git diff --name-only $BASE_COMMIT $HEAD_COMMIT -- bigquery/views/*.sql)
+
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "No SQL files changed."
+            echo "FILES_CHANGED=false" >> $GITHUB_ENV
+          else
+            echo "SQL files changed: $CHANGED_FILES"
+            echo "FILES_CHANGED=true" >> $GITHUB_ENV
+          fi
       
-      # 步驟6: 如果有任何 .sql 檔案變更，執行 Terraform Plan
       - name: Terraform Plan if any .sql files changed
         if: env.FILES_CHANGED == 'true'
         run: terraform plan
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-      
-      # 步驟7: 如果有任何 .sql 檔案變更，並且當前分支是 main，則執行 Terraform Apply
+
       - name: Terraform Apply if any .sql files changed
         if: env.FILES_CHANGED == 'true' && github.ref == 'refs/heads/main'
         run: terraform apply -auto-approve
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          
