@@ -44,29 +44,55 @@ jobs:
       - name: Terraform Format
         run: terraform fmt -check
 
-      # 步驟5: 使用 git diff 檢查這次提交中變更的 .sql 檔案
-      - name: Get list of changed SQL files
-        id: changed-files
+      # 步驟5: 計算所有 .sql 檔案的哈希值並檢查是否有變動
+      - name: Compute hashes for all .sql files
+        id: compute-hashes
         run: |
-          # 使用 git diff 比較 HEAD 和 HEAD~1 之間的變更
-          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD -- bigquery/views/*.sql)
+          # 初始化一個變數來追蹤變更的檔案
+          FILES_CHANGED=false
+          
+          # 對目錄下的所有 .sql 檔案進行處理
+          for file in bigquery/views/*.sql; do
+            # 計算每個 .sql 檔案的哈希值
+            CURRENT_HASH=$(sha256sum $file | awk '{ print $1 }')
+            FILENAME=$(basename $file)
+            HASH_FILE="$FILENAME.hash"
+            
+            echo "Current hash for $file: $CURRENT_HASH"
+            
+            # 檢查是否存在以前保存的哈希值檔案
+            if [ -f $HASH_FILE ]; then
+              PREV_HASH=$(cat $HASH_FILE)
+              echo "Previous hash for $file: $PREV_HASH"
+            else
+              PREV_HASH=""
+              echo "No previous hash found for $file. Assuming first run."
+            fi
+            
+            # 保存當前哈希值
+            echo $CURRENT_HASH > $HASH_FILE
+            
+            # 如果哈希值不同，則標記為有變動
+            if [ "$PREV_HASH" != "$CURRENT_HASH" ]; then
+              echo "$file has changed."
+              FILES_CHANGED=true
+            fi
+          done
+          
+          # 將變更狀態傳遞給後續步驟
+          echo "FILES_CHANGED=$FILES_CHANGED" >> $GITHUB_ENV
       
-          if [ -z "$CHANGED_FILES" ]; then
-            echo "No SQL files changed."
-            echo "FILES_CHANGED=false" >> $GITHUB_ENV
-          else
-            echo "SQL files changed: $CHANGED_FILES"
-            echo "FILES_CHANGED=true" >> $GITHUB_ENV
-          fi
-      
+      # 步驟6: 如果有任何 .sql 檔案變更，執行 Terraform Plan
       - name: Terraform Plan if any .sql files changed
         if: env.FILES_CHANGED == 'true'
         run: terraform plan
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-
+      
+      # 步驟7: 如果有任何 .sql 檔案變更，並且當前分支是 main，則執行 Terraform Apply
       - name: Terraform Apply if any .sql files changed
         if: env.FILES_CHANGED == 'true' && github.ref == 'refs/heads/main'
         run: terraform apply -auto-approve
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          
