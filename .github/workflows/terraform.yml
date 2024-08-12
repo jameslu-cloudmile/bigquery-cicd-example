@@ -8,7 +8,7 @@ on:
       - main
     paths:
       - 'bigquery/views/*.sql'  # 只監控 bigquery/views 目錄下的所有 .sql 檔案的變更
-      - '.github/workflows/terraform.yml'  # 監控workflow檔案自身的變更
+      - '.github/workflows/terraform.yml'  # 監控 workflow 檔案自身的變更
   pull_request:
 
 jobs:
@@ -44,6 +44,7 @@ jobs:
       - name: Terraform Format
         run: terraform fmt -check
 
+      # 步驟5: 計算所有 .sql 檔案的哈希值並檢查是否有變動
       - name: Compute hashes for all .sql files
         id: compute-hashes
         run: |
@@ -52,14 +53,14 @@ jobs:
           
           # 對目錄下的所有 .sql 檔案進行處理
           for file in bigquery/views/*.sql; do
-            # 计算每个 .sql 文件的哈希值
+            # 計算每個 .sql 檔案的哈希值
             CURRENT_HASH=$(sha256sum $file | awk '{ print $1 }')
             FILENAME=$(basename $file)
             HASH_FILE="$FILENAME.hash"
             
             echo "Current hash for $file: $CURRENT_HASH"
             
-            # 檢查是否存在以前保存的哈希值文件
+            # 檢查是否存在以前保存的哈希值檔案
             if [ -f $HASH_FILE ]; then
               PREV_HASH=$(cat $HASH_FILE)
               echo "Previous hash for $file: $PREV_HASH"
@@ -81,15 +82,17 @@ jobs:
           # 將變更狀態傳遞給後續步驟
           echo "FILES_CHANGED=$FILES_CHANGED" >> $GITHUB_ENV
       
+      # 步驟6: 如果有任何 .sql 檔案變更，執行 Terraform Plan
       - name: Terraform Plan if any .sql files changed
         if: env.FILES_CHANGED == 'true'
         run: terraform plan
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
       
+      # 步驟7: 如果有任何 .sql 檔案變更，並且當前分支是 main，則執行 Terraform Apply
       - name: Terraform Apply if any .sql files changed
         if: env.FILES_CHANGED == 'true' && github.ref == 'refs/heads/main'
         run: terraform apply -auto-approve
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-      
+          
