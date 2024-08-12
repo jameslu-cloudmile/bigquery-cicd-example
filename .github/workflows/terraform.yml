@@ -52,6 +52,7 @@ jobs:
           # 檢查是否只有一個提交，如果是，則使用默認分支進行比較
           if [ $(git rev-list --count HEAD) -eq 1 ]; then
             echo "Only one commit exists, comparing with main branch"
+            echo $(git rev-list --count HEAD)
             PREV_SHA=$(git rev-parse origin/main)
           else
             PREV_SHA=$(git rev-parse HEAD^)
