@@ -48,9 +48,17 @@ jobs:
       - name: Get list of changed SQL files
         id: changed-files
         run: |
-          # 使用 git diff 列出從前一個提交到當前提交之間變更的檔案
-          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} -- bigquery/views/*.sql)
-
+          # 檢查是否有有效的 previous commit SHA
+          if [ -z "${{ github.event.before }}" ]; then
+            echo "No valid previous commit found, using merge base with main branch."
+            BASE_COMMIT=$(git merge-base HEAD main)
+          else
+            BASE_COMMIT=${{ github.event.before }}
+          fi
+      
+          # 使用 git diff 列出從基準提交到當前提交之間變更的檔案
+          CHANGED_FILES=$(git diff --name-only $BASE_COMMIT ${{ github.sha }} -- bigquery/views/*.sql)
+      
           if [ -z "$CHANGED_FILES" ]; then
             echo "No SQL files changed."
             echo "FILES_CHANGED=false" >> $GITHUB_ENV
