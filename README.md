@@ -144,3 +144,4 @@ Users can edit the SQL file located at `bigquery/views/your-table-name.sql` to m
 - [hashicorp/setup-terraform GitHub Action](https://github.com/hashicorp/setup-terraform)
 - [IAM basic and predefined roles reference](https://cloud.google.com/iam/docs/understanding-roles)
 - [Version control Big Query with Terraform (with CI/CD too)](https://towardsdatascience.com/version-control-big-query-with-terraform-with-ci-cd-too-a4bbffb25ad9)
+- [GitHub Actions Variables](https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/variables#default-environment-variables)
