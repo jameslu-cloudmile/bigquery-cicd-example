@@ -49,10 +49,16 @@ jobs:
       - name: Determine Changed SQL Files
         id: changed-files
         run: |
-          # 使用 HEAD^ 來獲取前一次提交的 SHA 值
-          PREV_SHA=$(git rev-parse HEAD^)
+          # 檢查是否只有一個提交，如果是，則使用默認分支進行比較
+          if [ $(git rev-list --count HEAD) -eq 1 ]; then
+            echo "Only one commit exists, comparing with main branch"
+            PREV_SHA=$(git rev-parse origin/main)
+          else
+            PREV_SHA=$(git rev-parse HEAD^)
+          fi
+          
           echo "Using previous commit SHA: $PREV_SHA"
-
+      
           # 檢查變更的 SQL 文件
           CHANGED_FILES=$(git diff --name-only $PREV_SHA HEAD | grep '\.sql$' || true)
           
@@ -65,7 +71,7 @@ jobs:
           fi
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          
+           
       # 步驟6: 生成執行計畫 (Terraform Plan) - 針對 iris.sql
       # 如果檢測到 iris.sql 檔案發生了變更，則只針對 iris 表進行計劃
       - name: Terraform Plan for iris.sql
