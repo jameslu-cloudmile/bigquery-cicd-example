@@ -48,12 +48,9 @@ jobs:
       - name: Get list of changed SQL files
         id: changed-files
         run: |
-          # 獲取當前分支和 main 分支的共同祖先提交
-          BASE_COMMIT=$(git merge-base HEAD main)
-          
-          # 使用 git diff 比較共同祖先和當前提交之間的變更
-          CHANGED_FILES=$(git diff --name-only $BASE_COMMIT HEAD -- bigquery/views/*.sql)
-
+          # 使用 git diff 比較 HEAD 和 HEAD~1 之間的變更
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD -- bigquery/views/*.sql)
+      
           if [ -z "$CHANGED_FILES" ]; then
             echo "No SQL files changed."
             echo "FILES_CHANGED=false" >> $GITHUB_ENV
