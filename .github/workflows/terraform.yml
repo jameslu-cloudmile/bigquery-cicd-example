@@ -44,61 +44,52 @@ jobs:
       - name: Terraform Format
         run: terraform fmt -check
 
-      # 步驟5: 檢測變更的 SQL 檔案
-      # 使用 git diff 檢測自上次提交以來哪些 .sql 檔案發生了變更，並將它們儲存到環境變數 CHANGED_FILES 中
-      - name: Determine Changed SQL Files
-        id: changed-files
+      - name: Compute hashes for all .sql files
+        id: compute-hashes
         run: |
-          # 檢查是否只有一個提交，如果是，則使用默認分支進行比較
-          if [ $(git rev-list --count HEAD) -eq 1 ]; then
-            echo "Only one commit exists, comparing with main branch"
-            echo $(git rev-list --count HEAD)
-            PREV_SHA=$(git rev-parse origin/main)
-          else
-            PREV_SHA=$(git rev-parse HEAD^)
-          fi
+          # 初始化一個變數來追蹤變更的檔案
+          FILES_CHANGED=false
           
-          echo "Using previous commit SHA: $PREV_SHA"
+          # 對目錄下的所有 .sql 檔案進行處理
+          for file in bigquery/views/*.sql; do
+            # 计算每个 .sql 文件的哈希值
+            CURRENT_HASH=$(sha256sum $file | awk '{ print $1 }')
+            FILENAME=$(basename $file)
+            HASH_FILE="$FILENAME.hash"
+            
+            echo "Current hash for $file: $CURRENT_HASH"
+            
+            # 檢查是否存在以前保存的哈希值文件
+            if [ -f $HASH_FILE ]; then
+              PREV_HASH=$(cat $HASH_FILE)
+              echo "Previous hash for $file: $PREV_HASH"
+            else
+              PREV_HASH=""
+              echo "No previous hash found for $file. Assuming first run."
+            fi
+            
+            # 保存當前哈希值
+            echo $CURRENT_HASH > $HASH_FILE
+            
+            # 如果哈希值不同，則標記為有變動
+            if [ "$PREV_HASH" != "$CURRENT_HASH" ]; then
+              echo "$file has changed."
+              FILES_CHANGED=true
+            fi
+          done
+          
+          # 將變更狀態傳遞給後續步驟
+          echo "FILES_CHANGED=$FILES_CHANGED" >> $GITHUB_ENV
       
-          # 檢查變更的 SQL 文件
-          CHANGED_FILES=$(git diff --name-only $PREV_SHA HEAD | grep '\.sql$' || true)
-          
-          if [ -z "$CHANGED_FILES" ]; then
-            echo "No SQL files changed."
-            CHANGED_FILES=""
-          else
-            echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
-            echo "Changed SQL files: $CHANGED_FILES"
-          fi
+      - name: Terraform Plan if any .sql files changed
+        if: env.FILES_CHANGED == 'true'
+        run: terraform plan
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-           
-      # 步驟6: 生成執行計畫 (Terraform Plan) - 針對 iris.sql
-      # 如果檢測到 iris.sql 檔案發生了變更，則只針對 iris 表進行計劃
-      - name: Terraform Plan for iris.sql
-        if: contains(env.CHANGED_FILES, 'bigquery/views/iris.sql')
-        run: terraform plan -target=google_bigquery_table.iris
+      
+      - name: Terraform Apply if any .sql files changed
+        if: env.FILES_CHANGED == 'true' && github.ref == 'refs/heads/main'
+        run: terraform apply -auto-approve
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-
-      # 步驟7: 應用變更 (Terraform Apply) - 針對 iris.sql
-      # 如果檢測到 iris.sql 檔案發生變更，且當前為 main 分支，則將變更應用到實際環境
-      - name: Terraform Apply for iris.sql
-        if: contains(env.CHANGED_FILES, 'bigquery/views/iris.sql') && github.ref == 'refs/heads/main'
-        run: terraform apply -auto-approve -target=google_bigquery_table.iris
-        env:
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-
-      # 以下可以複製上述步驟，為其他 .sql 檔案設置條件
-      # 範例: 如果 another.sql 發生變更
-      # - name: Terraform Plan for another.sql
-      #   if: contains(env.CHANGED_FILES, 'bigquery/views/another.sql')
-      #   run: terraform plan -target=google_bigquery_table.another_table
-      #   env:
-      #     GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-
-      # - name: Terraform Apply for another.sql
-      #   if: contains(env.CHANGED_FILES, 'bigquery/views/another.sql') && github.ref == 'refs/heads/main'
-      #   run: terraform apply -auto-approve -target=google_bigquery_table.another_table
-      #   env:
-      #     GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+      
