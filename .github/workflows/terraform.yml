@@ -1,62 +1,84 @@
-# This workflow installs the latest version of Terraform CLI and configures the Terraform CLI configuration file
-# On pull request events, this workflow will run
-# `terraform init`, `terraform fmt`, and `terraform plan` (speculative plan via Terraform Cloud). 
-# On push events to the main branch, `terraform apply` will be executed.
-#
-# Documentation for `hashicorp/setup-terraform` is located here: https://github.com/hashicorp/setup-terraform
-
 name: 'Terraform'
 
-# Define the branch that Github Actions will run if changes are made
-# In our case we will be detecting push request on the main branch
+# 定義工作流程觸發條件
+# 當推送到 main 分支時，或者有 pull request 時觸發
 on:
   push:
     branches:
     - main
+    paths:
+    - 'bigquery/views/*.sql'  # 只監控 bigquery/views 目錄下的所有 .sql 檔案的變更
   pull_request:
 
 jobs:
   terraform:
     name: 'Terraform'
-    runs-on: ubuntu-latest
-    environment: production
+    runs-on: ubuntu-latest  # 指定使用 Ubuntu 環境運行這個工作
+    environment: production  # 指定運行環境名稱
 
-    # Use the Bash shell regardless whether the GitHub Actions runner is ubuntu-latest, macos-latest, or windows-latest
     defaults:
       run:
-        shell: bash
+        shell: bash  # 強制使用 Bash shell 來運行所有命令，無論運行器是什麼操作系統
 
     steps:
-    # Checkout the repository to the GitHub Actions runner
+    # 步驟1: 檢出程式碼
+    # 這一步將程式碼檢出到 GitHub Actions 的運行器中，以便後續步驟可以訪問程式碼
     - name: Checkout
       uses: actions/checkout@v2
 
-    # Install the latest version of Terraform CLI
+    # 步驟2: 安裝最新版本的 Terraform CLI
+    # 使用 hashicorp 提供的動作來設置 Terraform 環境
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v1
 
-
-    # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
-    # We pass our secret here as an environment variable so that terraform init can contact the GCS for the state file
+    # 步驟3: 初始化 Terraform 工作目錄
+    # 這將創建初始檔案、加載任何遠端狀態、下載模塊等，準備 Terraform 環境
     - name: Terraform Init
       run: terraform init
       env:
-        GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}  # 從 GitHub Secrets 中獲取 Google Cloud 資格憑證
 
-    # Checks that all Terraform configuration files adhere to a canonical format
+    # 步驟4: 格式化檢查
+    # 確保所有 Terraform 配置檔符合規範格式
     - name: Terraform Format
       run: terraform fmt -check
 
-    # Generates an execution plan for Terraform
-    - name: Terraform Plan
-      run: terraform plan
+    # 步驟5: 檢測變更的 SQL 檔案
+    # 使用 git diff 檢測自上次提交以來哪些 .sql 檔案發生了變更，並將它們儲存到環境變數 CHANGED_FILES 中
+    - name: Determine Changed SQL Files
+      id: changed-files
+      run: |
+        CHANGED_FILES=$(git diff --name-only ${{ github.sha }} ${{ github.event.before }} | grep '\.sql$')
+        echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
       env:
         GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
 
-      # On push to main, build or change infrastructure according to Terraform configuration files
-      # Note: It is recommended to set up a required "strict" status check in your repository for "Terraform Cloud". See the documentation on "strict" required status checks for more information: https://help.github.com/en/github/administering-a-repository/types-of-required-status-checks
-    - name: Terraform Apply
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      run: terraform apply -auto-approve
+    # 步驟6: 生成執行計畫 (Terraform Plan) - 針對 iris.sql
+    # 如果檢測到 iris.sql 檔案發生了變更，則只針對 iris 表進行計劃
+    - name: Terraform Plan for iris.sql
+      if: contains(env.CHANGED_FILES, 'bigquery/views/iris.sql')
+      run: terraform plan -target=google_bigquery_table.iris
       env:
         GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+
+    # 步驟7: 應用變更 (Terraform Apply) - 針對 iris.sql
+    # 如果檢測到 iris.sql 檔案發生變更，且當前為 main 分支，則將變更應用到實際環境
+    - name: Terraform Apply for iris.sql
+      if: contains(env.CHANGED_FILES, 'bigquery/views/iris.sql') && github.ref == 'refs/heads/main'
+      run: terraform apply -auto-approve -target=google_bigquery_table.iris
+      env:
+        GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+
+    # 以下可以複製上述步驟，為其他 .sql 檔案設置條件
+    # 範例: 如果 another.sql 發生變更
+    # - name: Terraform Plan for another.sql
+    #   if: contains(env.CHANGED_FILES, 'bigquery/views/another.sql')
+    #   run: terraform plan -target=google_bigquery_table.another_table
+    #   env:
+    #     GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+
+    # - name: Terraform Apply for another.sql
+    #   if: contains(env.CHANGED_FILES, 'bigquery/views/another.sql') && github.ref == 'refs/heads/main'
+    #   run: terraform apply -auto-approve -target=google_bigquery_table.another_table
+    #   env:
+    #     GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
